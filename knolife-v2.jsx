@@ -1,0 +1,787 @@
+import { useState, useEffect, useRef } from "react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart, BarChart, Bar, ReferenceLine } from "recharts";
+
+// ─── Storage ──────────────────────────────────────────────────────────────────
+const STORAGE_KEY = "knolife_v2";
+async function loadData() { try { const r = await window.storage.get(STORAGE_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; } }
+async function saveData(d) { try { await window.storage.set(STORAGE_KEY, JSON.stringify(d)); } catch {} }
+
+// ─── Seed checkins ────────────────────────────────────────────────────────────
+const SEED = [
+  { date: "2026-06-14", weight: 115.0, sleep: 6, energy: 6, steps: 6858, training: false, mood: 6, stress: 7, notes: "Første dag. Handlede ind. Aftentur." },
+  { date: "2026-06-15", weight: 114.6, sleep: 4, energy: 4, steps: 6766, training: false, mood: 5, stress: 6, notes: "Morgentur kl 7:58. Meal prep klaret. NA møde." },
+  { date: "2026-06-16", weight: 113.3, sleep: 5, energy: 6, steps: 8696, training: false, mood: 6, stress: 5, notes: "Bedre dag. Frikadeller lavet. Is med Arik." },
+  { date: "2026-06-17", weight: 112.3, sleep: 6, energy: 6, steps: 8664, training: false, mood: 7, stress: 4, notes: "Bedste søvn og energi hidtil." },
+  { date: "2026-06-18", weight: 111.9, sleep: 7, energy: 7, steps: 8628, training: false, mood: 7, stress: 4, notes: "Elektrolyttabs købt. Fantastisk dag." },
+  { date: "2026-06-19", weight: 112.0, sleep: 4, energy: 4, steps: 6700, training: false, mood: 4, stress: 8, notes: "Hårdt angstanfald hos frisøren. Hentede Arik." },
+  { date: "2026-06-20", weight: 112.3, sleep: 4, energy: 6, steps: 3900, training: false, mood: 5, stress: 7, notes: "Weekend med Arik. Strand. Meget sved." },
+  { date: "2026-06-21", weight: 112.9, sleep: 7, energy: 6, steps: 1600, training: false, mood: 6, stress: 6, notes: "Afleveret Arik. McDonald's. Psykiatri planlagt." },
+  { date: "2026-06-22", weight: 113.5, sleep: 7, energy: 6, steps: 6285, training: false, mood: 6, stress: 5, notes: "Morgentur tilbage. Dropper faste." },
+  { date: "2026-06-23", weight: 113.2, sleep: 7, energy: 6, steps: 11803, training: false, mood: 7, stress: 4, notes: "Sankt Hans! 11.803 skridt." },
+  { date: "2026-06-24", weight: 113.1, sleep: 6, energy: 6, steps: 3227, training: false, mood: 7, stress: 4, notes: "Strand med Arik. Rolig dag." },
+  { date: "2026-06-25", weight: 113.1, sleep: 7, energy: 7, steps: 5658, training: false, mood: 7, stress: 3, notes: "Fantastisk morgentur. Hjemmetræning planlagt.", kcal: 2220 },
+  { date: "2026-06-26", weight: 112.8, sleep: 4, energy: 5, steps: 7032, training: false, mood: 6, stress: 5, notes: "Kunne ikke sove – varme, snorkende nabo og mareridt." },
+  { date: "2026-06-27", weight: 112.4, sleep: 5, energy: 5, steps: 8165, training: false, mood: 6, stress: 4, notes: "Hedebølge. Sovet på sofaen. Chips og film. Børnefri weekend." },
+  { date: "2026-06-28", weight: 112.5, sleep: 7, energy: 7, steps: 3564, training: false, mood: 6, stress: 4, notes: "Søndag. Hedebølge. Børnefri weekend slut." },
+  { date: "2026-06-29", weight: 111.8, sleep: 7, energy: 6, steps: 0, training: false, mood: 6, stress: 3, notes: "Mandag. Ny uge. Klar til at komme i gang igen." },
+];
+
+// ─── Preset foods (Kno's actual meals) ───────────────────────────────────────
+const PRESET_FOODS = [
+  { id: "shake",    name: "Proteinshake",              kcal: 645, protein: 63, carbs: 75, fat: 8,  emoji: "🥤", meal: "morgenmad" },
+  { id: "rugbrod",  name: "Rugbrød m. tun & hytteost", kcal: 500, protein: 48, carbs: 45, fat: 8,  emoji: "🍞", meal: "frokost" },
+  { id: "kylling",  name: "Madkasse – Kylling & ris",  kcal: 490, protein: 48, carbs: 55, fat: 8,  emoji: "🍱", meal: "aftensmad" },
+  { id: "koed",     name: "Madkasse – Kødsauce",       kcal: 490, protein: 40, carbs: 45, fat: 12, emoji: "🍱", meal: "aftensmad" },
+  { id: "wrap",     name: "Oksekød wrap",               kcal: 450, protein: 38, carbs: 35, fat: 14, emoji: "🌯", meal: "aftensmad" },
+  { id: "aeg",      name: "2 hårdkogte æg",             kcal: 140, protein: 12, carbs: 0,  fat: 10, emoji: "🥚", meal: "snack" },
+  { id: "frikadel", name: "4 frikadeller",              kcal: 324, protein: 22, carbs: 6,  fat: 24, emoji: "🍳", meal: "aftensmad" },
+  { id: "banan",    name: "Banan + skyr + peanutbutter",kcal: 290, protein: 20, carbs: 28, fat: 8,  emoji: "🍌", meal: "snack" },
+  { id: "pasta",    name: "Pasta med frikadeller",      kcal: 520, protein: 30, carbs: 60, fat: 14, emoji: "🍝", meal: "aftensmad" },
+  { id: "pizza",    name: "Frysepizza (1 stk)",         kcal: 650, protein: 22, carbs: 75, fat: 28, emoji: "🍕", meal: "aftensmad" },
+  { id: "mcdo",     name: "McDonald's måltid",          kcal: 800, protein: 28, carbs: 85, fat: 35, emoji: "🍔", meal: "aftensmad" },
+  { id: "is",       name: "Is (2 kugler)",              kcal: 240, protein: 4,  carbs: 38, fat: 8,  emoji: "🍦", meal: "snack" },
+  { id: "kaffe",    name: "Sort kaffe",                 kcal: 2,   protein: 0,  carbs: 0,  fat: 0,  emoji: "☕", meal: "morgenmad" },
+  { id: "elektro",  name: "Elektrolyt tab",             kcal: 8,   protein: 0,  carbs: 2,  fat: 0,  emoji: "💧", meal: "snack" },
+  { id: "kylling_strimler",    name: "Kyllingestrimler Coop (150g)",              kcal: 213, protein: 28.5, carbs: 1.5, fat: 3,    emoji: "🍗", meal: "aftensmad" },
+  { id: "pizza_hel",           name: "Deep Pan Pepperoni Pizza – hel (368g)",     kcal: 972, protein: 40.5, carbs: 120, fat: 35,   emoji: "🍕", meal: "aftensmad" },
+  { id: "pizza_halv",          name: "Deep Pan Pepperoni Pizza – halv (184g)",    kcal: 486, protein: 20,   carbs: 60,  fat: 17.5, emoji: "🍕", meal: "aftensmad" },
+];
+
+const MACRO_GOALS = { kcal: 2000, protein: 167, carbs: 200, fat: 60 };
+const GOALS = { targetWeight: 85, startWeight: 115, dailySteps: 7000 };
+const MILESTONES = [115, 110, 105, 100, 95, 90, 85];
+const MEAL_TYPES = ["morgenmad", "frokost", "aftensmad", "snack"];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function rollingAvg(data, key, n = 7) {
+  return data.map((d, i) => {
+    const s = data.slice(Math.max(0, i - n + 1), i + 1);
+    return { ...d, [`${key}_avg`]: +(s.reduce((a, x) => a + (x[key] || 0), 0) / s.length).toFixed(2) };
+  });
+}
+function fmt(d) { return new Date(d).toLocaleDateString("da-DK", { day: "numeric", month: "short" }); }
+function bmi(w) { return (w / (1.86 * 1.86)).toFixed(1); }
+function today() { return new Date().toISOString().split("T")[0]; }
+
+// ─── Hooks ────────────────────────────────────────────────────────────────────
+function useCountUp(target, duration = 1200) {
+  const [val, setVal] = useState(0);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!target) return;
+    const start = Date.now();
+    clearInterval(ref.current);
+    ref.current = setInterval(() => {
+      const p = Math.min(1, (Date.now() - start) / duration);
+      const ease = 1 - Math.pow(1 - p, 3);
+      setVal(+(target * ease).toFixed(1));
+      if (p >= 1) clearInterval(ref.current);
+    }, 16);
+    return () => clearInterval(ref.current);
+  }, [target, duration]);
+  return val;
+}
+
+function useTypewriter(text, speed = 22) {
+  const [displayed, setDisplayed] = useState("");
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    setDisplayed(""); setDone(false);
+    let i = 0;
+    const t = setInterval(() => { i++; setDisplayed(text.slice(0, i)); if (i >= text.length) { clearInterval(t); setDone(true); } }, speed);
+    return () => clearInterval(t);
+  }, [text]);
+  return { displayed, done };
+}
+
+// ─── UI Components ────────────────────────────────────────────────────────────
+function Confetti({ active }) {
+  if (!active) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 200, overflow: "hidden" }}>
+      {Array.from({ length: 40 }, (_, i) => (
+        <div key={i} style={{
+          position: "absolute", width: 8, height: 8, borderRadius: 2,
+          left: `${Math.random() * 100}%`, top: `-${Math.random() * 20}px`,
+          background: ["#3B82F6","#22C55E","#F59E0B","#A78BFA","#EC4899"][i % 5],
+          animation: `confettiFall ${0.8 + Math.random() * 1.5}s ease-in ${Math.random() * 0.6}s forwards`,
+          transform: `rotate(${Math.random() * 360}deg)`,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+const CTip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#0A0A0A", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 14px" }}>
+      <p style={{ color: "#8E8E93", fontSize: 11, marginBottom: 4 }}>{label}</p>
+      {payload.map((p, i) => <p key={i} style={{ color: p.color, fontSize: 12, margin: 0 }}>{p.name}: {p.value}</p>)}
+    </div>
+  );
+};
+
+function ACard({ children, delay = 0, glow = false, style = {} }) {
+  const [vis, setVis] = useState(false);
+  const [hov, setHov] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setVis(true), delay); return () => clearTimeout(t); }, [delay]);
+  return (
+    <div
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{
+        background: "#0A0A0A", border: `1px solid rgba(255,255,255,${hov ? 0.1 : 0.06})`,
+        borderRadius: 24, padding: 20,
+        transition: "all 0.4s cubic-bezier(0.34,1.56,0.64,1)",
+        opacity: vis ? 1 : 0,
+        transform: vis ? (hov ? "translateY(-2px) scale(1.005)" : "translateY(0)") : "translateY(16px) scale(0.98)",
+        boxShadow: glow ? "0 0 30px rgba(59,130,246,0.15), 0 4px 24px rgba(0,0,0,0.6)" : hov ? "0 8px 32px rgba(0,0,0,0.5)" : "0 2px 12px rgba(0,0,0,0.4)",
+        ...style,
+      }}
+    >{children}</div>
+  );
+}
+
+function ABtn({ children, onClick, primary = false, small = false, danger = false, style = {} }) {
+  const [pressed, setPressed] = useState(false);
+  const bg = danger ? "rgba(239,68,68,0.15)" : primary ? "#3B82F6" : "rgba(255,255,255,0.06)";
+  const border = danger ? "1px solid rgba(239,68,68,0.3)" : primary ? "none" : "1px solid rgba(255,255,255,0.08)";
+  const color = danger ? "#ef4444" : primary ? "#fff" : "rgba(255,255,255,0.7)";
+  return (
+    <button onMouseDown={() => setPressed(true)} onMouseUp={() => setPressed(false)} onMouseLeave={() => setPressed(false)} onClick={onClick}
+      style={{ background: bg, border, borderRadius: 50, color, padding: small ? "6px 14px" : "10px 20px", fontSize: small ? 12 : 14, fontWeight: 500, cursor: "pointer", transition: "all 0.15s cubic-bezier(0.34,1.56,0.64,1)", transform: pressed ? "scale(0.92)" : "scale(1)", boxShadow: pressed ? "none" : primary ? "0 4px 16px rgba(59,130,246,0.3)" : "none", ...style }}>
+      {children}
+    </button>
+  );
+}
+
+function ProgressRing({ pct, size = 80, stroke = 5, color = "#3B82F6" }) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const [offset, setOffset] = useState(circ);
+  useEffect(() => { setTimeout(() => setOffset(circ - (Math.min(100, pct) / 100) * circ), 300); }, [pct, circ]);
+  return (
+    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={stroke} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" style={{ transition: "stroke-dashoffset 1.4s cubic-bezier(0.34,1.56,0.64,1)" }} />
+    </svg>
+  );
+}
+
+function MacroBar({ label, value, max, color }) {
+  const pct = Math.min(100, (value / max) * 100);
+  const [width, setWidth] = useState(0);
+  useEffect(() => { setTimeout(() => setWidth(pct), 200); }, [pct]);
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+        <span style={{ fontSize: 12, color: "#8E8E93" }}>{label}</span>
+        <span style={{ fontSize: 12, color: "#fff" }}>{Math.round(value)} / {max}{label === "Kcal" ? "" : "g"}</span>
+      </div>
+      <div style={{ height: 5, background: "rgba(255,255,255,0.06)", borderRadius: 5, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${width}%`, background: color, borderRadius: 5, transition: "width 1.2s cubic-bezier(0.34,1.56,0.64,1)" }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function App() {
+  const [checkins, setCheckins] = useState([]);
+  const [meals, setMeals] = useState({});
+  const [tab, setTab] = useState("home");
+  const [showCheckin, setShowCheckin] = useState(false);
+  const [showMealAdd, setShowMealAdd] = useState(false);
+  const [showCustomFood, setShowCustomFood] = useState(false);
+  const [confetti, setConfetti] = useState(false);
+  const [savedAnim, setSavedAnim] = useState(false);
+  const [mealDate, setMealDate] = useState(today());
+  const [coachMsg, setCoachMsg] = useState("");
+  const [customFood, setCustomFood] = useState({ name: "", kcal: "", protein: "", carbs: "", fat: "", meal: "aftensmad", emoji: "🍽️" });
+  const [checkinForm, setCheckinForm] = useState({
+    date: today(), weight: "", sleep: 7, energy: 7, steps: "", training: false, mood: 7, stress: 5, notes: "",
+  });
+
+  const COACH_MSGS = [
+    "Du viser op for dig selv og din søn, hver eneste dag. Det er det der tæller.",
+    "En hård dag ødelægger ikke dit forløb. Trenden er alt.",
+    "Du er ikke din diagnose. Du er en mand der stiger op og går en tur for sig selv.",
+    "0,5 kg ned om ugen er 26 kg på et år. Tålmodighed er din superkraft.",
+    "Kroppen tilpasser sig det du giver den. Du giver den mere end du tror.",
+    "Arik ser en far der kæmper for at leve bedre. Det stærkeste forbillede.",
+    "Sukkerafvænning og udtrapning er reel kemi. Det aftager. Du vinder.",
+  ];
+
+  useEffect(() => {
+    loadData().then(saved => {
+    setCheckins(saved?.checkins || SEED);
+    setMeals(saved?.meals || {});
+      setCoachMsg(COACH_MSGS[Math.floor(Math.random() * COACH_MSGS.length)]);
+    });
+  }, []);
+
+  async function persistAll(newCheckins, newMeals) {
+    await saveData({ checkins: newCheckins, meals: newMeals });
+  }
+
+  // Meal helpers
+  const todayMeals = meals[mealDate] || [];
+  const todayTotals = todayMeals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein, carbs: a.carbs + m.carbs, fat: a.fat + m.fat }), { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+
+  function addPresetMeal(food) {
+    const entry = { ...food, id: Date.now(), loggedAt: new Date().toISOString() };
+    const updated = { ...meals, [mealDate]: [...(meals[mealDate] || []), entry] };
+    setMeals(updated);
+    persistAll(checkins, updated);
+    setShowMealAdd(false);
+  }
+
+  function addCustomMeal() {
+    if (!customFood.name || !customFood.kcal) return;
+    const entry = { ...customFood, kcal: +customFood.kcal, protein: +customFood.protein || 0, carbs: +customFood.carbs || 0, fat: +customFood.fat || 0, id: Date.now(), loggedAt: new Date().toISOString() };
+    const updated = { ...meals, [mealDate]: [...(meals[mealDate] || []), entry] };
+    setMeals(updated);
+    persistAll(checkins, updated);
+    setShowCustomFood(false);
+    setCustomFood({ name: "", kcal: "", protein: "", carbs: "", fat: "", meal: "aftensmad", emoji: "🍽️" });
+  }
+
+  function removeMeal(id) {
+    const updated = { ...meals, [mealDate]: (meals[mealDate] || []).filter(m => m.id !== id) };
+    setMeals(updated);
+    persistAll(checkins, updated);
+  }
+
+  // Checkin
+  function submitCheckin() {
+    if (!checkinForm.weight) return;
+    const entry = { ...checkinForm, weight: +checkinForm.weight, steps: +checkinForm.steps };
+    const idx = checkins.findIndex(c => c.date === checkinForm.date);
+    const prevW = idx >= 0 ? checkins[idx].weight : null;
+    const updated = idx >= 0 ? checkins.map((c, i) => i === idx ? entry : c) : [...checkins, entry].sort((a, b) => a.date.localeCompare(b.date));
+    setCheckins(updated);
+    persistAll(updated, meals);
+    setSavedAnim(true);
+    if (prevW && +checkinForm.weight < prevW) setTimeout(() => { setConfetti(true); setTimeout(() => setConfetti(false), 3000); }, 400);
+    setTimeout(() => { setSavedAnim(false); setShowCheckin(false); }, 1200);
+  }
+
+  const latest = checkins[checkins.length - 1];
+  const first = checkins[0];
+  const prev = checkins[checkins.length - 2];
+  const totalLost = first && latest ? +(first.weight - latest.weight).toFixed(1) : 0;
+  const todayChange = latest && prev ? +(prev.weight - latest.weight).toFixed(1) : 0;
+  const progressPct = first && latest ? Math.min(100, ((first.weight - latest.weight) / (GOALS.startWeight - GOALS.targetWeight)) * 100) : 0;
+  const lowestWeight = checkins.length ? Math.min(...checkins.map(c => c.weight)) : 0;
+  const nextMilestone = MILESTONES.find(m => latest && latest.weight > m);
+  const kgToNext = latest && nextMilestone ? +(latest.weight - nextMilestone).toFixed(1) : 0;
+
+  const animWeight = useCountUp(latest?.weight || 0, 1400);
+  const animLost = useCountUp(totalLost, 1200);
+  const animPct = useCountUp(progressPct, 1600);
+  const chartData = rollingAvg(checkins, "weight").map(d => ({ ...d, name: fmt(d.date) }));
+  const { displayed: coachTyped, done: coachDone } = useTypewriter(coachMsg, 22);
+
+  const tabs = [
+    { id: "home",  label: "Hjem",   icon: "⬡" },
+    { id: "mad",   label: "Mad",    icon: "🍽" },
+    { id: "grafer",label: "Grafer", icon: "◈" },
+    { id: "coach", label: "Coach",  icon: "✦" },
+    { id: "stats", label: "Stats",  icon: "◇" },
+  ];
+
+  const lbl = { fontSize: 11, color: "#8E8E93", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 14px 0" };
+  const sectionGap = { display: "flex", flexDirection: "column", gap: 12 };
+
+  return (
+    <div style={{ background: "#000", minHeight: "100vh", color: "#fff", fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif" }}>
+      <Confetti active={confetti} />
+      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0 }}>
+        <div style={{ position: "absolute", top: -100, left: "50%", transform: "translateX(-50%)", width: 500, height: 400, background: "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 70%)" }} />
+      </div>
+
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 600, margin: "0 auto", padding: "32px 16px 110px" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+          <div>
+            <p style={{ color: "#8E8E93", fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", margin: 0 }}>Knolife V2</p>
+            <h1 style={{ fontSize: 28, fontWeight: 700, margin: "2px 0 0", letterSpacing: "-0.5px" }}>Kno</h1>
+          </div>
+          <ABtn primary onClick={() => setShowCheckin(true)}>+ Log i dag</ABtn>
+        </div>
+
+        {/* ── HOME ─────────────────────────────────────────────── */}
+        {tab === "home" && (
+          <div style={sectionGap}>
+            <ACard delay={0} glow>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+                <div>
+                  <p style={lbl}>Nuværende vægt</p>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
+                    <span style={{ fontSize: 56, fontWeight: 700, letterSpacing: "-2px", lineHeight: 1 }}>{animWeight.toFixed(1)}</span>
+                    <span style={{ fontSize: 20, color: "#8E8E93", marginBottom: 6 }}>kg</span>
+                  </div>
+                  {todayChange !== 0 && (
+                    <span style={{ fontSize: 13, color: todayChange > 0 ? "#22C55E" : "#F59E0B" }}>
+                      {todayChange > 0 ? "▼" : "▲"} {Math.abs(todayChange)} kg fra i går
+                    </span>
+                  )}
+                </div>
+                <div style={{ position: "relative", width: 80, height: 80 }}>
+                  <ProgressRing pct={animPct} />
+                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "#3B82F6" }}>{Math.round(animPct)}%</span>
+                    <span style={{ fontSize: 9, color: "#8E8E93" }}>mod mål</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, color: "#8E8E93" }}>Start: {GOALS.startWeight} kg</span>
+                  <span style={{ fontSize: 11, color: "#8E8E93" }}>Mål: {GOALS.targetWeight} kg</span>
+                </div>
+                <div style={{ height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${animPct}%`, background: "linear-gradient(90deg,#3B82F6,#818cf8)", borderRadius: 4, transition: "width 1.4s cubic-bezier(0.34,1.56,0.64,1)" }} />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+                {[["Tabt", `${animLost.toFixed(1)} kg`, "#22C55E"], ["Laveste", `${lowestWeight} kg`, "#3B82F6"], ["BMI", bmi(latest?.weight || 100), "#fff"], ["Dage", checkins.length, "#8E8E93"]].map(([l, v, c]) => (
+                  <div key={l} style={{ textAlign: "center" }}>
+                    <p style={{ fontSize: 10, color: "#8E8E93", margin: "0 0 2px", textTransform: "uppercase" }}>{l}</p>
+                    <p style={{ fontSize: 16, fontWeight: 600, color: c, margin: 0 }}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            </ACard>
+
+            <ACard delay={80}>
+              <p style={lbl}>Vægt over tid</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.25} />
+                      <stop offset="100%" stopColor="#3B82F6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="name" tick={{ fill: "#8E8E93", fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={["dataMin - 0.5","dataMax + 0.5"]} tick={{ fill: "#8E8E93", fontSize: 10 }} axisLine={false} tickLine={false} width={32} />
+                  <Tooltip content={<CTip />} />
+                  <Area isAnimationActive type="monotone" dataKey="weight" stroke="#3B82F6" strokeWidth={2} fill="url(#wg)" name="Vægt" dot={false} animationDuration={1400} />
+                  <Line isAnimationActive type="monotone" dataKey="weight_avg" stroke="#818cf8" strokeWidth={1.5} dot={false} strokeDasharray="4 2" name="7-dags snit" animationDuration={1800} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </ACard>
+
+            {nextMilestone && (
+              <ACard delay={160}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <p style={lbl}>Næste milestone</p>
+                    <p style={{ fontSize: 28, fontWeight: 700, margin: 0, color: "#3B82F6" }}>{nextMilestone} kg</p>
+                    <p style={{ fontSize: 13, color: "#8E8E93", margin: "4px 0 0" }}>{kgToNext} kg tilbage</p>
+                  </div>
+                  <div style={{ width: 56, height: 56, borderRadius: "50%", border: "2px solid #3B82F6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, boxShadow: "0 0 20px rgba(59,130,246,0.3)", animation: "pulse 2s ease-in-out infinite" }}>🎯</div>
+                </div>
+                <div style={{ marginTop: 12, height: 3, background: "rgba(255,255,255,0.05)", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.min(100, ((5 - kgToNext) / 5) * 100)}%`, background: "linear-gradient(90deg,#3B82F6,#22C55E)", borderRadius: 3, transition: "width 1.2s ease" }} />
+                </div>
+              </ACard>
+            )}
+
+            <ACard delay={240}>
+              <p style={lbl}>Milestones</p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {MILESTONES.map(m => {
+                  const unlocked = latest && latest.weight <= m;
+                  const next = m === nextMilestone;
+                  return (
+                    <div key={m} style={{ padding: "6px 14px", borderRadius: 50, fontSize: 13, fontWeight: 500, transition: "all 0.4s ease", background: unlocked ? "rgba(34,197,94,0.12)" : next ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.04)", border: unlocked ? "1px solid rgba(34,197,94,0.3)" : next ? "1px solid rgba(59,130,246,0.3)" : "1px solid rgba(255,255,255,0.06)", color: unlocked ? "#22C55E" : next ? "#3B82F6" : "#8E8E93" }}>
+                      {unlocked ? "✓ " : ""}{m} kg
+                    </div>
+                  );
+                })}
+              </div>
+            </ACard>
+
+            {latest && (
+              <ACard delay={320}>
+                <p style={lbl}>Seneste check-in · {fmt(latest.date)}</p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                  {[["Søvn", `${latest.sleep}/10`], ["Energi", `${latest.energy}/10`], ["Skridt", (latest.steps || 0).toLocaleString()], ["Humør", `${latest.mood}/10`]].map(([l, v]) => (
+                    <div key={l} style={{ background: "rgba(255,255,255,0.03)", borderRadius: 14, padding: "10px 8px", textAlign: "center" }}>
+                      <p style={{ fontSize: 10, color: "#8E8E93", margin: "0 0 3px" }}>{l}</p>
+                      <p style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{v}</p>
+                    </div>
+                  ))}
+                </div>
+                {latest.notes && <p style={{ marginTop: 12, fontSize: 12, color: "#8E8E93", fontStyle: "italic" }}>"{latest.notes}"</p>}
+              </ACard>
+            )}
+          </div>
+        )}
+
+        {/* ── MAD TAB ──────────────────────────────────────────── */}
+        {tab === "mad" && (
+          <div style={sectionGap}>
+
+            {/* Daily plan visual */}
+            <ACard delay={0} glow>
+              <p style={lbl}>Din daglige madplan</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  { emoji: "🥤", name: "Proteinshake", time: "12:00", kcal: 645, protein: 63, carbs: 75, fat: 8 },
+                  { emoji: "🍞", name: "Rugbrød m. tun & hytteost", time: "15:00", kcal: 500, protein: 48, carbs: 45, fat: 8 },
+                  { emoji: "🍱", name: "Madkasse (kylling eller kødsauce)", time: "18:00", kcal: 490, protein: 44, carbs: 50, fat: 10 },
+                  { emoji: "🥚", name: "2 hårdkogte æg", time: "20:00", kcal: 140, protein: 12, carbs: 0, fat: 10 },
+                ].map((meal, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 16 }}>
+                    <span style={{ fontSize: 24 }}>{meal.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{meal.name}</p>
+                        <span style={{ fontSize: 11, color: "#8E8E93" }}>{meal.time}</span>
+                      </div>
+                      <p style={{ fontSize: 11, color: "#8E8E93", margin: "3px 0 0" }}>P: {meal.protein}g · K: {meal.carbs}g · F: {meal.fat}g</p>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "#3B82F6" }}>{meal.kcal}</span>
+                  </div>
+                ))}
+              </div>
+            </ACard>
+
+            {/* Daily macro target rings */}
+            <ACard delay={80}>
+              <p style={lbl}>Daglige makromål</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+                {[
+                  { label: "Kcal", value: 1775, max: 2000, color: "#3B82F6" },
+                  { label: "Protein", value: 167, max: 167, color: "#22C55E" },
+                  { label: "Kulhydrat", value: 170, max: 200, color: "#F59E0B" },
+                  { label: "Fedt", value: 36, max: 60, color: "#A78BFA" },
+                ].map(({ label, value, max, color }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 16 }}>
+                    <div style={{ position: "relative", width: 52, height: 52, flexShrink: 0 }}>
+                      <ProgressRing pct={(value / max) * 100} size={52} stroke={4} color={color} />
+                      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color }}>{Math.round((value/max)*100)}%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 11, color: "#8E8E93", margin: "0 0 2px" }}>{label}</p>
+                      <p style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{value}<span style={{ fontSize: 11, color: "#8E8E93" }}>/{max}{label === "Kcal" ? "" : "g"}</span></p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: "12px 14px", background: "rgba(59,130,246,0.08)", borderRadius: 14, border: "1px solid rgba(59,130,246,0.15)" }}>
+                <p style={{ fontSize: 12, color: "#8E8E93", margin: "0 0 2px" }}>Kalorieunderskud per dag</p>
+                <p style={{ fontSize: 18, fontWeight: 700, color: "#22C55E", margin: 0 }}>~825 kcal under ligevægt</p>
+              </div>
+            </ACard>
+
+            {/* Macro pie visual */}
+            <ACard delay={160}>
+              <p style={lbl}>Makrofordeling på typisk dag</p>
+              <div style={{ display: "flex", gap: 12 }}>
+                {[
+                  { label: "Protein", pct: 38, color: "#22C55E", g: 167 },
+                  { label: "Kulhydrat", pct: 40, color: "#3B82F6", g: 170 },
+                  { label: "Fedt", pct: 22, color: "#A78BFA", g: 36 },
+                ].map(({ label, pct, color, g }) => (
+                  <div key={label} style={{ flex: 1, textAlign: "center", padding: "14px 8px", background: "rgba(255,255,255,0.03)", borderRadius: 16 }}>
+                    <div style={{ position: "relative", width: 60, height: 60, margin: "0 auto 8px" }}>
+                      <ProgressRing pct={pct} size={60} stroke={5} color={color} />
+                      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color }}>{pct}%</span>
+                      </div>
+                    </div>
+                    <p style={{ fontSize: 12, fontWeight: 600, margin: "0 0 2px" }}>{g}g</p>
+                    <p style={{ fontSize: 10, color: "#8E8E93", margin: 0 }}>{label}</p>
+                  </div>
+                ))}
+              </div>
+            </ACard>
+
+            {/* Calorie history */}
+            <ACard delay={240}>
+              <p style={lbl}>Kalorieindtag – seneste dage</p>
+              <ResponsiveContainer width="100%" height={140}>
+                <BarChart data={[
+                  { name: "14/6", kcal: 1775 },
+                  { name: "15/6", kcal: 1750 },
+                  { name: "16/6", kcal: 1800 },
+                  { name: "17/6", kcal: 1775 },
+                  { name: "18/6", kcal: 1775 },
+                  { name: "19/6", kcal: 1900 },
+                  { name: "20/6", kcal: 2100 },
+                  { name: "21/6", kcal: 2300 },
+                  { name: "22/6", kcal: 1775 },
+                  { name: "23/6", kcal: 1800 },
+                  { name: "24/6", kcal: 1775 },
+                  { name: "25/6", kcal: 2220 },
+                  { name: "26/6", kcal: 1775 },
+                  { name: "27/6", kcal: 2127 },
+                  { name: "28/6", kcal: 2562 },
+                ]}>
+                  <XAxis dataKey="name" tick={{ fill: "#8E8E93", fontSize: 9 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[1400, 2500]} tick={{ fill: "#8E8E93", fontSize: 9 }} axisLine={false} tickLine={false} width={35} />
+                  <Tooltip content={<CTip />} />
+                  <ReferenceLine y={2000} stroke="#22C55E" strokeDasharray="3 3" />
+                  <Bar isAnimationActive dataKey="kcal" fill="#3B82F6" fillOpacity={0.7} radius={[4,4,0,0]} name="Kcal" animationDuration={1200} />
+                </BarChart>
+              </ResponsiveContainer>
+              <p style={{ fontSize: 11, color: "#8E8E93", marginTop: 6, textAlign: "right" }}>— Grøn linje = 2.000 kcal mål</p>
+            </ACard>
+
+          </div>
+        )}
+
+        {/* ── GRAFER ───────────────────────────────────────────── */}
+        {tab === "grafer" && (
+          <div style={sectionGap}>
+            <ACard delay={0}>
+              <p style={lbl}>Skridt</p>
+              <ResponsiveContainer width="100%" height={150}>
+                <BarChart data={chartData}>
+                  <XAxis dataKey="name" tick={{ fill: "#8E8E93", fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#8E8E93", fontSize: 10 }} axisLine={false} tickLine={false} width={40} />
+                  <Tooltip content={<CTip />} />
+                  <ReferenceLine y={GOALS.dailySteps} stroke="#3B82F6" strokeDasharray="3 3" />
+                  <Bar isAnimationActive dataKey="steps" fill="#3B82F6" fillOpacity={0.7} radius={[5, 5, 0, 0]} name="Skridt" animationDuration={1200} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ACard>
+            <ACard delay={80}>
+              <p style={lbl}>Søvn & Energi</p>
+              <ResponsiveContainer width="100%" height={150}>
+                <LineChart data={chartData}>
+                  <XAxis dataKey="name" tick={{ fill: "#8E8E93", fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 10]} tick={{ fill: "#8E8E93", fontSize: 10 }} axisLine={false} tickLine={false} width={20} />
+                  <Tooltip content={<CTip />} />
+                  <Line isAnimationActive type="monotone" dataKey="sleep" stroke="#818cf8" strokeWidth={2} dot={false} name="Søvn" animationDuration={1400} />
+                  <Line isAnimationActive type="monotone" dataKey="energy" stroke="#22C55E" strokeWidth={2} dot={false} name="Energi" animationDuration={1600} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ACard>
+            <ACard delay={160}>
+              <p style={lbl}>Humør & Stress</p>
+              <ResponsiveContainer width="100%" height={150}>
+                <LineChart data={chartData}>
+                  <XAxis dataKey="name" tick={{ fill: "#8E8E93", fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 10]} tick={{ fill: "#8E8E93", fontSize: 10 }} axisLine={false} tickLine={false} width={20} />
+                  <Tooltip content={<CTip />} />
+                  <Line isAnimationActive type="monotone" dataKey="mood" stroke="#F59E0B" strokeWidth={2} dot={false} name="Humør" animationDuration={1400} />
+                  <Line isAnimationActive type="monotone" dataKey="stress" stroke="#f87171" strokeWidth={2} dot={false} name="Stress" animationDuration={1600} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ACard>
+          </div>
+        )}
+
+        {/* ── COACH ────────────────────────────────────────────── */}
+        {tab === "coach" && (
+          <div style={sectionGap}>
+            <ACard delay={0} glow>
+              <p style={lbl}>Din coach</p>
+              <p style={{ fontSize: 17, lineHeight: 1.7, color: "rgba(255,255,255,0.9)", margin: "0 0 16px", minHeight: 80 }}>
+                "{coachTyped}{!coachDone ? <span style={{ borderRight: "2px solid #3B82F6", animation: "blink 1s step-end infinite" }}>&nbsp;</span> : ""}"
+              </p>
+              <ABtn small onClick={() => setCoachMsg(COACH_MSGS[Math.floor(Math.random() * COACH_MSGS.length)])}>Ny besked →</ABtn>
+            </ACard>
+            <ACard delay={120}>
+              <p style={lbl}>Sandheder</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {[["💧","Dagens vægt er vand, ikke fedt.","Kroppen svinger 1-2 kg dagligt. Kig på ugetrenden."],["📈","Trenden er det eneste der tæller.","En hård weekend ødelægger ikke uger med arbejde."],["💊","Duloxetin udtrapning er reel.","Det du mærker er kemien, ikke dig. Det aftager."],["🧠","Bevægelse er medicin mod angst.","Daglig gang reducerer kortisol."],["❤️","Du møder altid op for Arik.","Selv på de hårdeste dage. Det er den stærkeste far."]].map(([icon, title, body]) => (
+                  <div key={title} style={{ display: "flex", gap: 12, padding: "12px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 14 }}>
+                    <span style={{ fontSize: 20 }}>{icon}</span>
+                    <div><p style={{ fontSize: 13, fontWeight: 500, margin: "0 0 2px" }}>{title}</p><p style={{ fontSize: 12, color: "#8E8E93", margin: 0 }}>{body}</p></div>
+                  </div>
+                ))}
+              </div>
+            </ACard>
+          </div>
+        )}
+
+        {/* ── STATS ────────────────────────────────────────────── */}
+        {tab === "stats" && (
+          <div style={sectionGap}>
+            <ACard delay={0}>
+              <p style={lbl}>7-dages gennemsnit</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {[["Skridt", Math.round(checkins.slice(-7).reduce((s,c) => s+(c.steps||0),0)/Math.min(7,checkins.length)).toLocaleString()],["Søvn",(checkins.slice(-7).reduce((s,c)=>s+c.sleep,0)/Math.min(7,checkins.length)).toFixed(1)+"/10"],["Energi",(checkins.slice(-7).reduce((s,c)=>s+c.energy,0)/Math.min(7,checkins.length)).toFixed(1)+"/10"],["Humør",(checkins.slice(-7).reduce((s,c)=>s+c.mood,0)/Math.min(7,checkins.length)).toFixed(1)+"/10"]].map(([l,v]) => (
+                  <div key={l} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 16, padding: 16 }}>
+                    <p style={{ fontSize: 11, color: "#8E8E93", margin: "0 0 4px" }}>{l}</p>
+                    <p style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            </ACard>
+            <ACard delay={80}>
+              <p style={lbl}>Alt siden start</p>
+              {[["Check-ins logget",checkins.length],["Dage siden start",Math.floor((new Date()-new Date(first?.date||Date.now()))/86400000)],["Samlet tabt",`${totalLost} kg`],["Laveste vægt",`${lowestWeight} kg`],["Nuværende BMI",bmi(latest?.weight||100)],["Total skridt",checkins.reduce((s,c)=>s+(c.steps||0),0).toLocaleString()]].map(([l,v]) => (
+                <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                  <span style={{ fontSize: 14, color: "#8E8E93" }}>{l}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{v}</span>
+                </div>
+              ))}
+            </ACard>
+          </div>
+        )}
+      </div>
+
+      {/* ── BOTTOM NAV ─────────────────────────────────────────── */}
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, background: "rgba(0,0,0,0.92)", backdropFilter: "blur(20px)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ maxWidth: 600, margin: "0 auto", display: "flex" }}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{ flex: 1, padding: "12px 4px 14px", border: "none", background: "none", cursor: "pointer", color: tab === t.id ? "#3B82F6" : "#8E8E93", fontSize: 10, fontWeight: tab === t.id ? 600 : 400, transition: "all 0.2s ease", transform: tab === t.id ? "scale(1.05)" : "scale(1)", position: "relative", zIndex: 51 }}>
+              <div style={{ fontSize: 18, marginBottom: 2 }}>{t.icon}</div>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── MODAL: Add preset meal ────────────────────────────── */}
+      {showMealAdd && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(12px)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#0A0A0A", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 28, width: "100%", maxWidth: 500, padding: 24, maxHeight: "80vh", overflowY: "auto", animation: "slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Vælg måltid</h2>
+              <button onClick={() => setShowMealAdd(false)} style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "#8E8E93", width: 32, height: 32, borderRadius: "50%", cursor: "pointer", fontSize: 16 }}>×</button>
+            </div>
+            {MEAL_TYPES.map(type => {
+              const foods = PRESET_FOODS.filter(f => f.meal === type);
+              return (
+                <div key={type} style={{ marginBottom: 20 }}>
+                  <p style={{ fontSize: 11, color: "#8E8E93", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 10px" }}>{type}</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {foods.map(food => (
+                      <button key={food.id} onClick={() => addPresetMeal(food)}
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, cursor: "pointer", transition: "all 0.2s ease", textAlign: "left" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "rgba(59,130,246,0.1)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 20 }}>{food.emoji}</span>
+                          <div>
+                            <p style={{ fontSize: 13, fontWeight: 500, color: "#fff", margin: 0 }}>{food.name}</p>
+                            <p style={{ fontSize: 11, color: "#8E8E93", margin: "2px 0 0" }}>P: {food.protein}g · K: {food.carbs}g · F: {food.fat}g</p>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "#3B82F6" }}>{food.kcal} kcal</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: Custom food ────────────────────────────────── */}
+      {showCustomFood && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(12px)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#0A0A0A", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 28, width: "100%", maxWidth: 500, padding: 24, animation: "slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Brugerdefineret mad</h2>
+              <button onClick={() => setShowCustomFood(false)} style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "#8E8E93", width: 32, height: 32, borderRadius: "50%", cursor: "pointer", fontSize: 16 }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, color: "#8E8E93", display: "block", marginBottom: 5 }}>Navn</label>
+                <input value={customFood.name} onChange={e => setCustomFood(p => ({ ...p, name: e.target.value }))} placeholder="fx Hjemmelavet suppe" style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "9px 12px", color: "#fff", fontSize: 14, boxSizing: "border-box" }} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {[["Kalorier (kcal)","kcal"],["Protein (g)","protein"],["Kulhydrat (g)","carbs"],["Fedt (g)","fat"]].map(([label, key]) => (
+                  <div key={key}>
+                    <label style={{ fontSize: 11, color: "#8E8E93", display: "block", marginBottom: 5 }}>{label}</label>
+                    <input type="number" value={customFood[key]} onChange={e => setCustomFood(p => ({ ...p, [key]: e.target.value }))} placeholder="0" style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "9px 12px", color: "#fff", fontSize: 14, boxSizing: "border-box" }} />
+                  </div>
+                ))}
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: "#8E8E93", display: "block", marginBottom: 5 }}>Måltidstype</label>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {MEAL_TYPES.map(type => (
+                    <button key={type} onClick={() => setCustomFood(p => ({ ...p, meal: type }))}
+                      style={{ padding: "6px 14px", borderRadius: 50, fontSize: 12, cursor: "pointer", border: customFood.meal === type ? "1px solid rgba(59,130,246,0.4)" : "1px solid rgba(255,255,255,0.08)", background: customFood.meal === type ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.04)", color: customFood.meal === type ? "#3B82F6" : "#8E8E93", transition: "all 0.2s ease", textTransform: "capitalize" }}>
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <ABtn primary onClick={addCustomMeal}>Tilføj måltid</ABtn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: Check-in ───────────────────────────────────── */}
+      {showCheckin && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(12px)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#0A0A0A", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 28, width: "100%", maxWidth: 500, padding: 24, animation: "slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Check-in</h2>
+              <button onClick={() => setShowCheckin(false)} style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "#8E8E93", width: 32, height: 32, borderRadius: "50%", cursor: "pointer", fontSize: 16 }}>×</button>
+            </div>
+            {savedAnim ? (
+              <div style={{ textAlign: "center", padding: "32px 0" }}>
+                <div style={{ fontSize: 48, animation: "bounceIn 0.5s ease" }}>✅</div>
+                <p style={{ color: "#22C55E", marginTop: 8 }}>Gemt!</p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {[{ label: "Dato", key: "date", type: "date" }, { label: "Vægt (kg)", key: "weight", type: "number", placeholder: "113.0", step: "0.1" }].map(f => (
+                    <div key={f.key}>
+                      <label style={{ fontSize: 11, color: "#8E8E93", display: "block", marginBottom: 5 }}>{f.label}</label>
+                      <input type={f.type} step={f.step} placeholder={f.placeholder} value={checkinForm[f.key]} onChange={e => setCheckinForm(p => ({ ...p, [f.key]: e.target.value }))} style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "9px 12px", color: "#fff", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                  ))}
+                </div>
+                {[{ key: "sleep", label: "Søvn" }, { key: "energy", label: "Energi" }, { key: "mood", label: "Humør" }, { key: "stress", label: "Stress" }].map(({ key, label }) => (
+                  <div key={key}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                      <label style={{ fontSize: 11, color: "#8E8E93" }}>{label}</label>
+                      <span style={{ fontSize: 11, color: "#fff" }}>{checkinForm[key]}/10</span>
+                    </div>
+                    <input type="range" min={1} max={10} value={checkinForm[key]} onChange={e => setCheckinForm(p => ({ ...p, [key]: +e.target.value }))} style={{ width: "100%", accentColor: "#3B82F6" }} />
+                  </div>
+                ))}
+                <div>
+                  <label style={{ fontSize: 11, color: "#8E8E93", display: "block", marginBottom: 5 }}>Skridt i går</label>
+                  <input type="number" placeholder="6500" value={checkinForm.steps} onChange={e => setCheckinForm(p => ({ ...p, steps: e.target.value }))} style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "9px 12px", color: "#fff", fontSize: 14, boxSizing: "border-box" }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 12, color: "#8E8E93" }}>Træning</span>
+                  <button onClick={() => setCheckinForm(p => ({ ...p, training: !p.training }))} style={{ padding: "5px 14px", borderRadius: 50, fontSize: 12, cursor: "pointer", border: checkinForm.training ? "1px solid rgba(34,197,94,0.4)" : "1px solid rgba(255,255,255,0.08)", background: checkinForm.training ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.04)", color: checkinForm.training ? "#22C55E" : "#8E8E93", transition: "all 0.2s ease" }}>
+                    {checkinForm.training ? "Ja ✓" : "Nej"}
+                  </button>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#8E8E93", display: "block", marginBottom: 5 }}>Noter</label>
+                  <textarea placeholder="Hvordan gik dagen..." value={checkinForm.notes} onChange={e => setCheckinForm(p => ({ ...p, notes: e.target.value }))} rows={2} style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "9px 12px", color: "#fff", fontSize: 14, resize: "none", boxSizing: "border-box" }} />
+                </div>
+                <ABtn primary onClick={submitCheckin}>Gem check-in</ABtn>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes slideUp { from { opacity:0; transform:translateY(40px) scale(0.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+        @keyframes pulse { 0%,100% { box-shadow:0 0 0 0 rgba(59,130,246,0.3); } 50% { box-shadow:0 0 0 8px rgba(59,130,246,0); } }
+        @keyframes bounceIn { 0% { transform:scale(0); } 60% { transform:scale(1.2); } 100% { transform:scale(1); } }
+        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+        @keyframes confettiFall { to { transform:translateY(100vh) rotate(720deg); opacity:0; } }
+        * { -webkit-font-smoothing:antialiased; }
+        input[type=range] { height:3px; }
+        ::-webkit-scrollbar { width:0; }
+      `}</style>
+    </div>
+  );
+}
